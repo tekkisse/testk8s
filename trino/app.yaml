@@ -16,7 +16,7 @@ spec:
     syncOptions: 
     - CreateNamespace=true 
   source:
-    repoURL: git@github.com/SwanseaUniversityMedical/k8s-prod-sail-deploy
+    repoURL: git@github.com/tekkisse/testk8s
     targetRevision: HEAD
     path: trino/apps
     
