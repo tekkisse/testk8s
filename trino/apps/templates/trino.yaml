@@ -1,0 +1,182 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: trino
+  namespace: serp-sail-trino
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  destination:
+    namespace: serp-sail-trino
+    server: https://kubernetes.default.svc
+  project: serp-sail-trino
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:  
+    - CreateNamespace=true
+    - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff: 
+        duration: "30s"
+        factor: 2
+        maxDuration: "10m0s"
+  source:
+    repoURL: 'harbor.ukserp.ac.uk/trino/chart'
+    chart: trino
+    # renovate: datasource=helm-oci depName=trino/chart/trino registryUrl=https://harbor.ukserp.ac.uk
+    targetRevision: "2.5.1"
+    helm:
+      values: |
+        image:
+          repository: harbor.ukserp.ac.uk/trino/trino
+          # renovate: datasource=docker depName=trino/trino registryUrl=https://harbor.ukserp.ac.uk
+          tag: 446
+
+        entrypointOverride: 
+          command: ['sh', '-c']
+          args: ['source /vault/secrets/minio.env && /usr/lib/trino/bin/run-trino']
+
+        secretAnnotations:
+          vault.hashicorp.com/agent-inject: 'true'
+          vault.hashicorp.com/role: 'sail'
+          vault.hashicorp.com/agent-inject-secret-ldap.env: 'kvv2/data/prod/shared/activedirectory/guestbook'
+          vault.hashicorp.com/agent-inject-secret-kctrino.env: 'kvv2/data/prod/sail/trino/keycloak'
+          vault.hashicorp.com/agent-inject-secret-minio.env: 'kvv2/data/prod/sail/trino/minio'
+          vault.hashicorp.com/agent-inject-secret-db2.env: 'kvv2/data/prod/sail/shared/db2'
+          vault.hashicorp.com/agent-inject-template-minio.env: |
+            {{`{{ with secret "kvv2/data/prod/sail/trino/minio" -}}
+            export s3_access_key="{{ .Data.data.access_key }}"
+            export s3_secret_key="{{ .Data.data.secret_key }}"
+            {{- end }}
+            {{ with secret "kvv2/data/prod/sail/shared/db2 " -}}
+            export db2_username="{{ .Data.data.username }}"
+            export db2_password="{{ .Data.data.password }}"
+            {{- end }}
+            {{ with secret "kvv2/data/prod/sail/trino/keycloak " -}}
+            export keycloak_client_id="{{ .Data.data.keycloak_client_id }}"
+            export keycloak_client_secret="{{ .Data.data.keycloak_client_secret }}"
+            {{- end }}
+            {{ with secret "kvv2/data/prod/shared/activedirectory/guestbook" -}}
+            export ldap_bind_dn="{{ .Data.data.bind_dn }}"
+            export ldap_bind_pass="{{ .Data.data.bind_password }}"
+            {{- end }}`}}
+
+        server:
+          workers: 5
+          config:
+            query:
+              maxMemory: "200GB"
+              # maxmemorypernode + heapHeadroomPerNode <= coordination|worker.jvm.maxheapsize
+              maxMemoryPerNode: "80GB"
+            memory:
+              heapHeadroomPerNode: "20GB"
+            spillToDisk:
+              enabled: true
+              path: "~/spill"
+            https:
+              enabled: false
+            authenticationType: "OAUTH2,PASSWORD"
+            passwordAuthenticationProperties:
+              password-authenticator.name: "ldap"
+              ldap.url: "ldaps://chi.swan.ac.uk:636"
+              ldap.ssl.keystore.path: "/etc/pki/java/cacerts"
+              ldap.ssl.keystore.password: "changeit"
+              ldap.user-bind-pattern: "uid=${USER},OU=HIRU,DC=chi,DC=swan,DC=ac,DC=uk"
+              ldap.bind-dn: "${ENV:ldap_bind_dn}"
+              ldap.bind-password: "${ENV:ldap_bind_pass}"
+              ldap.group-auth-pattern: "(&(objectClass=person)(sAMAccountName=${USER})(memberOf=CN=sail-trino-sa,OU=Groups,OU=Kuberneties,OU=Service Accounts,DC=chi,DC=swan,DC=ac,DC=uk))"
+              ldap.user-base-dn: "OU=Prod,OU=Kuberneties,OU=Service Accounts,DC=chi,DC=swan,DC=ac,DC=uk"
+          autoscaling:
+            enabled: true
+            maxReplicas: 50
+            metrics:
+              - type: Resource
+                resource:
+                  name: cpu
+                  target:
+                    type: Utilization
+                    averageUtilization: 50
+              - type: Resource
+                resource:
+                  name: memory
+                  target:
+                    type: Utilization
+                    averageUtilization: 95
+          coordinatorExtraConfig: |
+            http-server.process-forwarded=true
+            internal-communication.shared-secret=thisisdefinitelyasecret
+            http-server.authentication.oauth2.issuer=https://keycloak.mk.serp.ac.uk/realms/k8s-sail
+            http-server.authentication.oauth2.client-id=${ENV:keycloak_client_id}
+            http-server.authentication.oauth2.client-secret=${ENV:keycloak_client_secret}
+            http-server.authentication.oauth2.scopes=openid,profile,email
+            http-server.authentication.oauth2.principal-field=preferred_username
+            http-server.authentication.oauth2.refresh-tokens=true
+            deprecated.http-server.authentication.oauth2.groups-field=groups
+            web-ui.authentication.type=oauth2
+          workerExtraConfig: |
+            http-server.process-forwarded=true
+            internal-communication.shared-secret=thisisdefinitelyasecret
+
+        coordinator:
+          jvm:
+            maxHeapSize: "100G"
+
+        worker:
+          jvm:
+            maxHeapSize: "100G"
+          resources:
+            limits:
+              memory: 20Gi
+              cpu: 5
+            requests:
+              memory: 5Gi
+              cpu: 2
+
+        additionalCatalogs:
+          iceberg: |
+            connector.name=iceberg
+            hive.metastore.uri=thrift://hive-metastore.serp-sail-trino.svc.cluster.local:9083
+            hive.metastore.thrift.delete-files-on-drop=true
+            hive.s3.path-style-access=true
+            hive.s3.endpoint=https://minio.serp-sail-trino.svc.cluster.local:443
+            hive.s3.aws-access-key=${ENV:s3_access_key}
+            hive.s3.aws-secret-key=${ENV:s3_secret_key}
+            hive.s3.ssl.enabled=true
+            hive.s3.streaming.enabled=true
+            hive.metastore-timeout=30s
+            iceberg.file-format=PARQUET
+            iceberg.catalog.type=HIVE_METASTORE
+          db2: |
+            connector.name=db2
+            connection-url=jdbc:db2://192.168.222.10:60070/pr_sail:sslConnection=true;sslTrustStoreLocation=/dbks.jks;
+            connection-user=${ENV:db2_username}
+            connection-password=${ENV:db2_password}
+            user-credential-name=${ENV:db2_username}
+            password-credential-name=${ENV:db2_password}
+            unsupported-type-handling=CONVERT_TO_VARCHAR
+            join-pushdown.enabled=true
+
+        ingress:
+          enabled: true
+          className: "nginx-sail"
+          annotations:
+            cert-manager.io/cluster-issuer: "ca-issuer"
+            nginx.ingress.kubernetes.io/proxy-body-size: 1000m
+            nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
+            nginx.ingress.kubernetes.io/proxy-buffer-size: "128k"
+          host: "trino.sail.pk.serp.ac.uk"
+          tls:
+            - hosts:
+              - trino.sail.pk.serp.ac.uk
+              secretName: trino-secret-tls
+
+        metrics:
+          enabled: true
+          serviceMonitor:
+            enabled: true
+
+        

@@ -1,0 +1,72 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hive-metastore
+  namespace: serp-sail-trino
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  destination:
+    namespace: serp-sail-trino
+    server: https://kubernetes.default.svc
+  project: serp-sail-trino
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:  
+    - CreateNamespace=true
+    - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff: 
+        duration: "30s"
+        factor: 2
+        maxDuration: "10m0s"
+  source:
+    repoURL: 'harbor.ukserp.ac.uk/trino/chart'
+    chart: hive
+    # renovate: datasource=helm-oci depName=trino/chart/hive registryUrl=https://harbor.ukserp.ac.uk
+    targetRevision: "1.8.3"
+    helm:
+      valuesObject: 
+        image:
+          repository: harbor.ukserp.ac.uk/trino/hive
+          tag: 1.4.0
+
+        overrideCommand: 
+          command: ['sh', '-c']
+          args: ['source /vault/secrets/minio.env && /entrypoint.sh']
+
+        annotations:
+          vault.hashicorp.com/agent-inject: 'true'
+          vault.hashicorp.com/role: 'sail'
+          vault.hashicorp.com/agent-inject-secret-minio.env: 'kvv2/data/prod/sail/trino/minio'
+          vault.hashicorp.com/agent-inject-secret-postgres.env: 'kvv2/data/prod/sail/trino/postgres'
+          vault.hashicorp.com/agent-inject-template-minio.env: |
+            {{`{{ with secret "kvv2/data/prod/sail/trino/minio" -}}
+            export s3_access_key="{{ .Data.data.access_key }}"
+            export s3_secret_key="{{ .Data.data.secret_key }}"
+            {{- end }}
+            {{ with secret "kvv2/data/prod/sail/trino/postgres" -}}
+            export pg_username="{{ .Data.data.postgres_hive_username }}"
+            export pg_password="{{ .Data.data.postgres_hive_password }}"
+            {{- end }}`}}
+
+        mysql:
+          enabled: false
+
+        metastoreDb:
+          hostname: trino-pg-pooler
+          port: 5432
+          database: metastore_db
+          auth:
+            username: ${env.pg_username}
+            password: ${env.pg_password}
+
+        minio:
+          accessKey: ${env.s3_access_key}
+          secretKey: ${env.s3_secret_key}
+          endpoint: https://minio.serp-sail-trino.svc.cluster.local:443
+          useSSL: true

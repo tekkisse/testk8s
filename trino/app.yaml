@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: serp-sail-trino
+  namespace: hiru-mgmt-argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: serp-sail-trino
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: serp-sail-trino
+  syncPolicy:
+    automated: 
+      selfHeal: true 
+    syncOptions: 
+    - CreateNamespace=true 
+  source:
+    repoURL: git@github.com/SwanseaUniversityMedical/k8s-prod-sail-deploy
+    targetRevision: HEAD
+    path: trino/apps
+    

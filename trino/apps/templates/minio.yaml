@@ -1,0 +1,125 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: minio
+  namespace: serp-sail-trino
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: serp-sail-trino
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: serp-sail-trino
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+  source:
+    repoURL: 'https://operator.min.io/'
+    chart: tenant
+    # renovate: datasource=helm depName=tenant registryUrl=https://operator.min.io
+    targetRevision: 5.0.13
+    helm:
+      valuesObject:
+        secrets:
+          existingSecret: minio-env-config
+
+        tenant:
+          name: sail-trino
+          configuration:
+            name: minio-env-config
+
+          pools:
+            - servers: 20
+              name: pool-0
+              volumesPerServer: 4
+              size: 3.2Ti
+              storageClassName: directpv-min-io-tier1a
+              nodeSelector: 
+                hiru.io/directpv-storage-tier: "1A"
+              resources: 
+                requests:
+                  cpu: "2"
+                  memory: "4Gi"
+              containerSecurityContext:
+                runAsUser: 1000
+                runAsGroup: 1000
+                runAsNonRoot: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                seccompProfile:
+                  type: "RuntimeDefault"
+
+          metrics:
+            enabled: true
+            protocol: https
+
+          env:
+            - name: MINIO_PROMETHEUS_AUTH_TYPE
+              value: public
+            - name: MINIO_PROMETHEUS_URL
+              value: http://prometheus-operator-kube-p-prometheus.hiru-mgmt-monitoring.svc:9090
+            - name: CONSOLE_PROMETHEUS_URL
+              value: http://prometheus-operator-kube-p-prometheus.hiru-mgmt-monitoring.svc:9090
+            - name: MINIO_PROMETHEUS_JOB_ID
+              value: "scrapeConfig/hiru-mgmt-monitoring/sail-trino-minio-job"
+            - name: PROMETHEUS_NAMESPACE
+              value: "hiru-mgmt-monitoring"
+            - name: PROMETHEUS_NAME
+              value: "prometheus-operator-kube-p-prometheus"
+            - name: MINIO_STORAGE_CLASS_STANDARD
+              value: "EC:4"
+            - name: MINIO_IDENTITY_OPENID_CONFIG_URL_PRIMARY_IAM
+              value: "https://keycloak.mk.serp.ac.uk/realms/k8s-hiru/.well-known/openid-configuration"
+            - name: MINIO_IDENTITY_OPENID_DISPLAY_NAME_PRIMARY_IAM
+              value: "SSO_IDENTIFIER"
+            - name: MINIO_IDENTITY_OPENID_SCOPES_PRIMARY_IAM
+              value: "openid,email"
+            - name: MINIO_IDENTITY_OPENID_REDIRECT_URI_DYNAMIC_PRIMARY_IAM
+              value: "on"
+
+          certificate:
+            requestAutoCert: false
+            externalCertSecret:
+              - name: minio-tls-secret
+                type: kubernetes.io/tls
+
+          prometheusOperator: true
+
+        ingress:
+          api:
+            enabled: true
+            ingressClassName: "nginx-hiru"
+            annotations: 
+              cert-manager.io/cluster-issuer: ca-issuer
+              nginx.ingress.kubernetes.io/proxy-body-size: 1000m
+              nginx.ingress.kubernetes.io/secure-backends: "true"
+              nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+            tls: 
+              - hosts:
+                - minio-api.trino.sail.pk.serp.ac.uk
+                secretName: minioapi-ingress-tls
+            host: minio-api.trino.sail.pk.serp.ac.uk
+            path: /
+            pathType: Prefix
+
+          console:
+            enabled: true
+            ingressClassName: "nginx-hiru"
+            annotations: 
+              cert-manager.io/cluster-issuer: ca-issuer
+              nginx.ingress.kubernetes.io/proxy-body-size: 1000m
+              nginx.ingress.kubernetes.io/secure-backends: "true"
+              nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+            tls: 
+              - hosts:
+                - minio.trino.sail.pk.serp.ac.uk
+                secretName: minio-ingress-tls
+            host: minio.trino.sail.pk.serp.ac.uk
+            path: /
+            pathType: Prefix

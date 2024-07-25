@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres
+  namespace: serp-sail-trino
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: serp-sail-trino
+  destination:
+    namespace: serp-sail-trino
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+  source:
+    repoURL: git@github.com/SwanseaUniversityMedical/k8s-prod-sail-deploy
+    targetRevision: HEAD
+    path: trino/manifests
+    directory:
+      include: 'postgres.yaml'

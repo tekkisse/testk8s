@@ -1,0 +1,42 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: minio-tls-secret
+  namespace: serp-sail-trino
+spec:
+  # Secret names are always required.
+  secretName: minio-tls-secret
+  duration: 2160h0m0s #90d
+  renewBefore: 360h0m0s #15d
+  subject:
+    organizations:
+      - serp
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+  usages:
+    - server auth
+    - digital signature
+    - client auth
+    - key encipherment
+  dnsNames:
+    - "minio.trino.sail.pk.serp.ac.uk"
+    - "minio"
+    - "minio.serp-sail-trino"
+    - "minio.serp-sail-trino.svc"
+    - "minio.serp-sail-trino.svc.cluster.local"
+    - "sail-trino-hl"
+    - "sail-trino-hl.serp-sail-trino"
+    - "sail-trino-hl.serp-sail-trino.svc"
+    - "sail-trino-hl.serp-sail-trino.svc.cluster.local"
+    - "*.sail-trino-hl.serp-sail-trino.svc.cluster.local"
+    - "*.serp-sail-trino.svc.cluster.local"
+    # we use this as a cheat/workaround to get it to trust the keycloak ca for oidc
+    - "keycloak.mk.serp.ac.uk"
+  ipAddresses:
+    - 127.0.0.1
+  issuerRef:
+    name: ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io

@@ -1,0 +1,57 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: sail-trino-minio-job
+  namespace: hiru-mgmt-monitoring
+spec:
+  metricsPath: /minio/v2/metrics/cluster
+  staticConfigs:
+    - targets:
+        - "sail-trino-hl.serp-sail-trino.svc.cluster.local:9000"
+  scheme: HTTPS
+  tlsConfig:
+    insecureSkipVerify: true
+    ca: 
+      secret:
+        name: prometheus-cert
+        key: ca.crt
+
+---
+
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: sail-minio-trino-bucket-job
+  namespace: hiru-mgmt-monitoring
+spec:
+  metricsPath: /minio/v2/metrics/bucket
+  staticConfigs:
+    - targets:
+        - "sail-trino-hl.serp-sail-trino.svc.cluster.local:9000"
+  scheme: HTTPS
+  tlsConfig:
+    insecureSkipVerify: true
+    ca: 
+      secret:
+        name: prometheus-cert
+        key: ca.crt
+
+---
+
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: sail-minio-trino-resource-job
+  namespace: hiru-mgmt-monitoring
+spec:
+  metricsPath: /minio/v2/metrics/resource
+  staticConfigs:
+    - targets:
+        - "sail-trino-hl.serp-sail-trino.svc.cluster.local:9000"
+  scheme: HTTPS
+  tlsConfig:
+    insecureSkipVerify: true
+    ca: 
+      secret:
+        name: prometheus-cert
+        key: ca.crt
